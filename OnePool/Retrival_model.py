@@ -3,7 +3,8 @@ import os
 from openai import OpenAI
 import json
 from rank_bm25 import BM25Okapi
-from transformers import BertModel, BertTokenizer, AdamW
+from transformers import BertModel, BertTokenizer
+from torch.optim import AdamW
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
@@ -16,11 +17,14 @@ else:
 
 
 # get the answer from the chatgpt
-def chatgpt_answer(question, gpt_model="gpt-3.5-turbo"):
-    os.environ["OPENAI_API_KEY"] = "..."
-    openai.api_key = os.environ["OPENAI_API_KEY"]
+def chatgpt_answer(question, gpt_model="deepseek-ai/DeepSeek-V3"):
+    # os.environ["OPENAI_API_KEY"] = "..."
+    # openai.api_key = os.environ["OPENAI_API_KEY"]
 
-    client = OpenAI()
+    client = OpenAI(
+        base_url="https://api.siliconflow.cn/v1",
+        api_key="sk-rlpqucqefotjrdfuzknudckvnhxnunvcothaaiyadwpfxndp"
+    )
     completion = client.chat.completions.create(
         model=gpt_model,
         messages=[
@@ -91,7 +95,13 @@ def grade_and_select_forMemory(prompt, train_list):
 # first list will contain the contrastive couple()
 # second list will contain the sigal + or -
 def grade_and_select(prompt, train_list):
-    before_dash, after_dash = prompt.split('->')
+    parts = prompt.split('->')
+    if len(parts) >= 2:
+        before_dash = parts[0]
+        after_dash = "->".join(parts[1:])
+    else:
+        before_dash = prompt
+        after_dash = ""
     dic_score = {}
     for example in train_list:
         question = f"In terms of the question-{before_dash}, by giving you this prompt-{example}, What is the " \

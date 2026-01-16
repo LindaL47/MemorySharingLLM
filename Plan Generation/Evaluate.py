@@ -2,7 +2,8 @@ import openai
 import os
 from openai import OpenAI
 import json
-from transformers import BertModel, BertTokenizer, AdamW
+from transformers import BertModel, BertTokenizer
+from torch.optim import AdamW
 import torch
 import torch.nn as nn
 from rouge import Rouge
@@ -17,11 +18,14 @@ else:
 
 
 # get the answer from the chatgpt
-def chatgpt_answer(question, gpt_model="gpt-3.5-turbo"):
-    os.environ["OPENAI_API_KEY"] = "..."
-    openai.api_key = os.environ["OPENAI_API_KEY"]
+def chatgpt_answer(question, gpt_model="deepseek-ai/DeepSeek-V3"):
+    # os.environ["OPENAI_API_KEY"] = "..."
+    # openai.api_key = os.environ["OPENAI_API_KEY"]
 
-    client = OpenAI()
+    client = OpenAI(
+        base_url="https://api.siliconflow.cn/v1",
+        api_key="sk-rlpqucqefotjrdfuzknudckvnhxnunvcothaaiyadwpfxndp"
+    )
     completion = client.chat.completions.create(
         model=gpt_model,
         messages=[
@@ -180,7 +184,13 @@ def main(file_name, test_file):
     questions = []
     standard_answers = []
     for testSentence in test_sentences:
-        dash_before, dash_after = testSentence.split('->')
+        parts = testSentence.split('->')
+        if len(parts) >= 2:
+            dash_before = parts[0]
+            dash_after = "->".join(parts[1:])
+        else:
+            dash_before = testSentence
+            dash_after = ""
         questions.append(dash_before)
         standard_answers.append(dash_after)
     answers = generate_answer_afterRetrieval(questions, "model.pth", "optimizer.pth", all_sentences)
@@ -188,5 +198,11 @@ def main(file_name, test_file):
     print(calculate_bertScores(answers, standard_answers))
 
 
+import argparse
+
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description='Evaluate plan generation model')
+    parser.add_argument('--file_name', type=str, default='fitnessTest.jsonl', help='Input file name (default: fitnessTest.jsonl)')
+    parser.add_argument('--test_file', type=str, default='fitnessTest.jsonl', help='Test file name (default: fitnessTest.jsonl)')
+    args = parser.parse_args()
+    main(args.file_name, args.test_file)

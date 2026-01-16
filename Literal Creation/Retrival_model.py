@@ -3,24 +3,40 @@ import os
 from openai import OpenAI
 import json
 from rank_bm25 import BM25Okapi
-from transformers import BertModel, BertTokenizer, AdamW
+from transformers import BertModel, BertTokenizer
+from torch.optim import AdamW
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-else:
-    device = torch.device("cpu")
+# ===================== 关键修改1：全局设备配置（优先用GPU 2，兼容Integrate.py的DEVICE传递） =====================
+# 1. 强制指定仅使用GPU 2（物理机空闲卡）
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+torch.cuda.empty_cache()  # 清空GPU缓存，释放残留显存
+
+# 2. 定义全局DEVICE，优先读取Integrate.py传递的DEVICE，兜底用CPU
+try:
+    # 若Integrate.py传递了DEVICE，则复用
+    DEVICE = Retrival_model.DEVICE
+except:
+    # 兜底逻辑：优先GPU，无则CPU
+    if torch.cuda.is_available():
+        DEVICE = torch.device("cuda:0")  # 此时cuda:0对应物理机GPU 2
+    else:
+        DEVICE = torch.device("cpu")
+print(f"Retrival_model.py 当前使用设备: {DEVICE}", flush=True)
 
 
 # get the answer from the chatgpt
-def chatgpt_answer(question, gpt_model="gpt-3.5-turbo"):
-    os.environ["OPENAI_API_KEY"] = "..."
-    openai.api_key = os.environ["OPENAI_API_KEY"]
+def chatgpt_answer(question, gpt_model="deepseek-ai/DeepSeek-V3"):
+    # os.environ["OPENAI_API_KEY"] = "..."
+    # openai.api_key = os.environ["OPENAI_API_KEY"]
 
-    client = OpenAI()
+    client = OpenAI(
+        base_url="https://api.siliconflow.cn/v1",
+        api_key="sk-rlpqucqefotjrdfuzknudckvnhxnunvcothaaiyadwpfxndp"
+    )
     completion = client.chat.completions.create(
         model=gpt_model,
         messages=[
@@ -91,7 +107,14 @@ def grade_and_select_forMemory(prompt, train_list):
 # first list will contain the contrastive couple()
 # second list will contain the sigal + or -
 def grade_and_select(prompt, train_list):
-    before_dash, after_dash = prompt.split('->')
+    parts = prompt.split('->')
+    if len(parts) >= 2:
+        before_dash = parts[0]
+        after_dash = "->".join(parts[1:])
+    else:
+        # Fallback if separator not found, though unlikely given allSentences construction
+        before_dash = prompt
+        after_dash = ""
     dic_score = {}
     for example in train_list:
         question = f"In terms of the question-{before_dash}, by giving you this prompt-{example}, What is the " \
@@ -143,13 +166,17 @@ class SentencePairDataset(Dataset):
 class SentenceSimilarityModel(nn.Module):
     def __init__(self, model_name='bert-base-uncased'):
         super(SentenceSimilarityModel, self).__init__()
-        self.encoder = BertModel.from_pretrained(model_name)
+        # 初始化时直接将模型移到DEVICE
+        self.encoder = BertModel.from_pretrained(model_name).to(DEVICE)
         self.tokenizer = BertTokenizer.from_pretrained(model_name)
-        self.classifier = nn.Linear(self.encoder.config.hidden_size * 2, 1)
+        self.classifier = nn.Linear(self.encoder.config.hidden_size * 2, 1).to(DEVICE)
 
     def forward(self, sentence_pairs_s):
         flattened_sentences = [sentence_e for pair in sentence_pairs_s for sentence_e in pair]
+        # 修改：输入张量放到DEVICE上
         inputs = self.tokenizer(flattened_sentences, padding=True, truncation=True, return_tensors="pt", max_length=512)
+        # 将tokenizer输出的每个张量单独移到DEVICE
+        inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
         outputs = self.encoder(**inputs)
         sentence_embeddings = outputs.pooler_output.view(-1, 2, self.encoder.config.hidden_size)
         combined_embeddings = torch.cat((sentence_embeddings[:, 0], sentence_embeddings[:, 1]), dim=1)
@@ -164,8 +191,8 @@ def save_model_and_optimizer(trained_model, trained_optimizer, model_path="model
 
 
 def load_model_and_optimizer(trained_model, trained_optimizer, model_path="model.pth", optimizer_path="optimizer.pth"):
-    trained_model.load_state_dict(torch.load(model_path))
-    trained_optimizer.load_state_dict(torch.load(optimizer_path))
+    trained_model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    trained_optimizer.load_state_dict(torch.load(optimizer_path, map_location=DEVICE))
     # print(f"Loaded model from {model_path} and optimizer state from {optimizer_path}")
 
 
@@ -189,21 +216,31 @@ def training_model(model_l, new_sentence_pairs, new_labels, optimizer_r, epochs=
     # Training Loop
     model_l.train()
     for epoch in range(epochs):
+        # ========== 关键修改1：初始化epoch_loss ==========
+        epoch_loss = 0.0
+
         for batch in new_loader:
             optimizer_r.zero_grad()
             sentence_pairs_s = batch['sentence_pair']
-            labels_s = batch['label']
+            labels_s = batch['label'].to(DEVICE)  # 双重确认标签在DEVICE上
             outputs, _ = model_l(sentence_pairs_s)
             loss = criterion(outputs, labels_s)
             loss.backward()
             optimizer_r.step()
+            
+            epoch_loss += loss.item()
+        
+        # 打印每轮损失（优化：除以批次数量得到平均损失）
+        avg_loss = epoch_loss / len(new_loader)
+        print(f"Epoch {epoch+1}/{epochs}, Average Loss: {avg_loss:.4f}")
+
         #print(f"Epoch {epoch}, Loss: {loss.item()}")
 
 
 def main(file_name):
     all_sentences = allSentences(file_name)
     model = SentenceSimilarityModel()
-    model = model.to(device)
+    model = model.to(DEVICE) # 确保模型在GPU上
     optimizer = AdamW(model.parameters(), lr=5e-5)
     start = 0
     for x in tqdm(all_sentences):
@@ -213,11 +250,13 @@ def main(file_name):
             optimizer = AdamW(model.parameters(), lr=5e-5)
             # Load the saved states
             load_model_and_optimizer(model, optimizer, "model.pth", "optimizer.pth")
-            model = model.to(device)
+            model = model.to(DEVICE)
         first_list = retrieval_first_BM25(x, all_sentences)
         sentence_pairs, labels = grade_and_select(x, first_list)
         training_model(model, sentence_pairs, labels, optimizer, epochs=2)
         save_model_and_optimizer(model, optimizer, "model.pth", "optimizer.pth")
+        # 每轮训练后清空显存缓存
+        torch.cuda.empty_cache()
 
 
 if __name__ == '__main__':

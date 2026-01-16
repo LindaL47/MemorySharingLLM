@@ -5,7 +5,7 @@ import json
 from tqdm import tqdm
 
 if __name__ == '__main__':
-    Retrival_model.main("./PlanTrain.jsonl")
+    Retrival_model.main("./PlanPool.jsonl")
 
     """
     while True:
@@ -40,9 +40,9 @@ if __name__ == '__main__':
             print("total_Count:" + str(total_count))
             print("Count:" + str(count))
     print("For fitness: ----------------------------")
-    Evaluate.main("./PlanTrain.jsonl", "./fitnessTest.jsonl")
+    Evaluate.main("./PlanPool.jsonl", "./fitnessTest.jsonl")
     print("For study:--------------------------")
-    Evaluate.main("./PlanTrain.jsonl", "./studyTest.jsonl")
+    Evaluate.main("./PlanPool.jsonl", "./studyTest.jsonl")
     print("For travel")
-    Evaluate.main("./PlanTrain.jsonl", "./travelTest.jsonl")
+    Evaluate.main("./PlanPool.jsonl", "./travelTest.jsonl")
 

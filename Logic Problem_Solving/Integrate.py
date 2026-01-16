@@ -5,7 +5,7 @@ import json
 from tqdm import tqdm
 
 if __name__ == '__main__':
-    Retrival_model.main("./LogicTrain.jsonl")
+    Retrival_model.main("./LogicPool.jsonl")
 
     """
     while True:
@@ -40,9 +40,9 @@ if __name__ == '__main__':
             print("total_Count:" + str(total_count))
             print("Count:" + str(count))
         print("For puzzle: ----------------------------")
-        Evaluate.main("./LogicTrain.jsonl", "./puzzleTest.jsonl")
+        Evaluate.main("./LogicPool.jsonl", "./puzzleTest.jsonl")
         print("For puns:--------------------------")
-        Evaluate.main("./LogicTrain.jsonl", "punsTest.jsonl")
+        Evaluate.main("./LogicPool.jsonl", "punsTest.jsonl")
         print("For riddles")
-        Evaluate.main("./LogicTrain.jsonl", "./riddlesTest.jsonl")
+        Evaluate.main("./LogicPool.jsonl", "./riddlesTest.jsonl")
 

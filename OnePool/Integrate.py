@@ -5,7 +5,7 @@ import json
 from tqdm import tqdm
 
 if __name__ == '__main__':
-    Retrival_model.main("./TotalTrain.jsonl")
+    Retrival_model.main("./SinglePool.jsonl")
 
     """
     while True:
@@ -33,28 +33,28 @@ if __name__ == '__main__':
         final_question = Evaluate.final_prompt(problem, "model.pth", "optimizer.pth", all_sentences)
         answer = Evaluate.chatgpt_answer(final_question)
         totot_count = total_count + 1
-        bValue = Agent_MS.message_store(final_question, answer, "./SingelPool.jsonl", "Total")
+        bValue = Agent_MS.message_store(final_question, answer, "./SinglePool.jsonl", "Total")
         if bValue:
             count = count + 1
         if count % 20 == 0:
             print("total_Count:" + str(total_count))
             print("Count:" + str(count))
     print("For wuyanlvshi: ----------------------------")
-    Evaluate.main("./TotalTrain.jsonl", "./lvshiTest.jsonl")
+    Evaluate.main("./SinglePool.jsonl", "./lvshiTest.jsonl")
     print("For Limerick:--------------------------")
-    Evaluate.main("./TotalTrain.jsonl", "./limerickTest.jsonl")
+    Evaluate.main("./SinglePool.jsonl", "./limerickTest.jsonl")
     print("For sonnet")
-    Evaluate.main("./TotalTrain.jsonl", "./sonnetTest.jsonl")
+    Evaluate.main("./SinglePool.jsonl", "./sonnetTest.jsonl")
     print("For puns: ----------------------------")
-    Evaluate.main("./TotalTrain.jsonl", "./punsTest.jsonl")
+    Evaluate.main("./SinglePool.jsonl", "./punsTest.jsonl")
     print("For puzzle:--------------------------")
-    Evaluate.main("./TotalTrain.jsonl", "./puzzleTest.jsonl")
+    Evaluate.main("./SinglePool.jsonl", "./puzzleTest.jsonl")
     print("For riddles")
-    Evaluate.main("./TotalTrain.jsonl", "./riddlesTest.jsonl")
+    Evaluate.main("./SinglePool.jsonl", "./riddlesTest.jsonl")
     print("For fitness: ----------------------------")
-    Evaluate.main("./TotalTrain.jsonl", "./fitnessTest.jsonl")
+    Evaluate.main("./SinglePool.jsonl", "./fitnessTest.jsonl")
     print("For study:--------------------------")
-    Evaluate.main("./TotalTrain.jsonl", "./studyTest.jsonl")
+    Evaluate.main("./SinglePool.jsonl", "./studyTest.jsonl")
     print("For travel")
-    Evaluate.main("./TotalTrain.jsonl", "./travelTest.jsonl")
+    Evaluate.main("./SinglePool.jsonl", "./travelTest.jsonl")
 

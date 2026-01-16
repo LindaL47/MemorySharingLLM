@@ -2,7 +2,8 @@ import openai
 import os
 from openai import OpenAI
 import json
-from transformers import BertModel, BertTokenizer, AdamW
+from transformers import BertModel, BertTokenizer
+from torch.optim import AdamW
 import torch
 import torch.nn as nn
 from rouge import Rouge
@@ -10,18 +11,28 @@ from evaluate import load
 import evaluate
 from tqdm import tqdm
 
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-else:
-    device = torch.device("cpu")
-
+# ===================== 关键修改1：全局设备配置（统一使用GPU 2） =====================
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+torch.cuda.empty_cache()  # 清空GPU缓存
+# 优先读取外部传递的DEVICE，兜底用CPU
+try:
+    DEVICE = Evaluate.DEVICE
+except:
+    if torch.cuda.is_available():
+        DEVICE = torch.device("cuda:0")  # 对应物理机GPU 2
+    else:
+        DEVICE = torch.device("cpu")
+print(f"Evaluate.py 当前使用设备: {DEVICE}", flush=True)
 
 # get the answer from the chatgpt
-def chatgpt_answer(question, gpt_model="gpt-3.5-turbo"):
-    os.environ["OPENAI_API_KEY"] = "..."
-    openai.api_key = os.environ["OPENAI_API_KEY"]
+def chatgpt_answer(question, gpt_model="deepseek-ai/DeepSeek-V3"):
+    # os.environ["OPENAI_API_KEY"] = "..."
+    # openai.api_key = os.environ["OPENAI_API_KEY"]
 
-    client = OpenAI()
+    client = OpenAI(
+        base_url="https://api.siliconflow.cn/v1",
+        api_key="sk-rlpqucqefotjrdfuzknudckvnhxnunvcothaaiyadwpfxndp"
+    )
     completion = client.chat.completions.create(
         model=gpt_model,
         messages=[
@@ -55,7 +66,7 @@ class SentenceSimilarityModel(nn.Module):
 
     def forward(self, sentence_pairs_s):
         flattened_sentences = [sentence_e for pair in sentence_pairs_s for sentence_e in pair]
-        inputs = self.tokenizer(flattened_sentences, padding=True, truncation=True, return_tensors="pt", max_length=512)
+        inputs = self.tokenizer(flattened_sentences, padding=True, truncation=True, return_tensors="pt", max_length=512).to(DEVICE)  # 关键：输入张量放到DEVICE上
         outputs = self.encoder(**inputs)
         sentence_embeddings = outputs.pooler_output.view(-1, 2, self.encoder.config.hidden_size)
         combined_embeddings = torch.cat((sentence_embeddings[:, 0], sentence_embeddings[:, 1]), dim=1)
@@ -70,8 +81,10 @@ def save_model_and_optimizer(trained_model, trained_optimizer, model_path="model
 
 
 def load_model_and_optimizer(trained_model, trained_optimizer, model_path="model.pth", optimizer_path="optimizer.pth"):
-    trained_model.load_state_dict(torch.load(model_path))
-    trained_optimizer.load_state_dict(torch.load(optimizer_path))
+    trained_model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    trained_optimizer.load_state_dict(torch.load(optimizer_path, map_location=DEVICE))
+    # 新增：加载模型后清空缓存，释放加载过程中的临时显存
+    torch.cuda.empty_cache()
     #print(f"Loaded model from {model_path} and optimizer state from {optimizer_path}")
 
 
@@ -82,13 +95,13 @@ def find_most_similar_sentences(test_sentence_eee, dataset_sentences, model_lll,
     with torch.no_grad():
         test_embedding = None
         # First, get the embedding of the test sentence
-        inputs = tokenizer(test_sentence_eee, return_tensors="pt", padding=True, truncation=True, max_length=512)
+        inputs = tokenizer(test_sentence_eee, return_tensors="pt", padding=True, truncation=True, max_length=512).to(DEVICE)  # 加.to(DEVICE)
         outputs = model_lll.encoder(**inputs)
         test_embedding = outputs.pooler_output
 
         # Then, compare it to each sentence in the dataset
         for dataset_sentence in dataset_sentences:
-            inputs = tokenizer(dataset_sentence, return_tensors="pt", padding=True, truncation=True, max_length=512)
+            inputs = tokenizer(dataset_sentence, return_tensors="pt", padding=True, truncation=True, max_length=512).to(DEVICE)  # 加.to(DEVICE)
             outputs = model_lll.encoder(**inputs)
             dataset_embedding = outputs.pooler_output
 
@@ -109,7 +122,7 @@ def final_prompt(question, model_pth, optimizer_pth, dataset_sentences):
     o_optimizer = AdamW(m_model.parameters(), lr=5e-5)
     # Load the saved states
     load_model_and_optimizer(m_model, o_optimizer, model_pth, optimizer_pth)
-    m_model = m_model.to(device)
+    m_model = m_model.to(DEVICE)
     t_top_sentences, t_top_scores = find_most_similar_sentences(question, dataset_sentences, m_model, m_model.tokenizer,
                                                                 top_k=2)
 
@@ -131,8 +144,14 @@ def generate_answer_afterRetrieval(questions, model_pth, optimizer_pth, dataset_
 
 def calculate_bertScores(generated_answers, standard_answers):
     bertscore = load("bertscore")
+    # results = bertscore.compute(predictions=generated_answers, references=standard_answers,
+    #                             model_type="microsoft/deberta-xlarge-mnli")
+    # 修改：把deberta-xlarge-mnli换成roberta-base（轻量版）
     results = bertscore.compute(predictions=generated_answers, references=standard_answers,
-                                model_type="microsoft/deberta-xlarge-mnli")
+                                model_type="roberta-base")  # 替换原模型
+    # 增加缓存清理
+    torch.cuda.empty_cache()
+
     return sum(results['precision'])/len(results['precision'])
 
 
@@ -180,12 +199,37 @@ def main(file_name, test_file):
     questions = []
     standard_answers = []
     for testSentence in test_sentences:
-        dash_before, dash_after = testSentence.split('->')
+        parts = testSentence.split('->')
+        if len(parts) >= 2:
+            dash_before = parts[0]
+            dash_after = "->".join(parts[1:])
+        else:
+            dash_before = testSentence
+            dash_after = ""
         questions.append(dash_before)
         standard_answers.append(dash_after)
+
+    # 新增：数据预处理完成后清空缓存
+    torch.cuda.empty_cache()
+
     answers = generate_answer_afterRetrieval(questions, "model.pth", "optimizer.pth", all_sentences)
-    print(calculate_aggregated_rouge_score(answers, standard_answers))
-    print(calculate_bertScores(answers, standard_answers))
+    
+    # 1. 计算ROUGE并打印
+    rouge_result = calculate_aggregated_rouge_score(answers, standard_answers)
+    print(rouge_result)
+
+    # ROUGE计算完成后、BERTScore计算前，强制清空缓存（重点！）
+    torch.cuda.empty_cache()
+    
+    # 2. 计算BERTScore并打印
+    bertscore_result = calculate_bertScores(answers, standard_answers)
+    print(bertscore_result)
+    
+    # print(calculate_aggregated_rouge_score(answers, standard_answers))
+    # print(calculate_bertScores(answers, standard_answers))
+
+    # 所有评估完成后再次清空缓存
+    torch.cuda.empty_cache()
 
 
 if __name__ == '__main__':

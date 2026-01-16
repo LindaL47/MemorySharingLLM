@@ -159,12 +159,15 @@ def valid_fine_tuning(file_name):
 
 
 def scoring_by_chatgpt(question, answer, grading_category):
-    os.environ["OPENAI_API_KEY"] = "..."
-    openai.api_key = os.environ["OPENAI_API_KEY"]
+    # os.environ["OPENAI_API_KEY"] = "..."
+    # openai.api_key = os.environ["OPENAI_API_KEY"]
     grading_rubric = dic_grading[grading_category]
-    client = OpenAI()
+    client = OpenAI(
+        base_url="https://api.siliconflow.cn/v1",
+        api_key="sk-rlpqucqefotjrdfuzknudckvnhxnunvcothaaiyadwpfxndp"
+    )
     completion = client.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model="deepseek-ai/DeepSeek-V3",
         messages=[
             {"role": "system", "content": "You are a Agent fouce on grading the example for In-context learning, "
                                           "if the given example is good for In-context learning, give the example a "

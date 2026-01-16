@@ -6,10 +6,18 @@ import json
 import Retrival_model
 import torch
 
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-else:
-    device = torch.device("cpu")
+# ===================== 关键修改1：全局设备配置（统一使用GPU 2） =====================
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+torch.cuda.empty_cache()  # 清空GPU缓存
+# 优先读取外部传递的DEVICE，兜底用CPU
+try:
+    DEVICE = Agent_MS.DEVICE
+except:
+    if torch.cuda.is_available():
+        DEVICE = torch.device("cuda:0")  # 对应物理机GPU 2
+    else:
+        DEVICE = torch.device("cpu")
+print(f"Agent_MS.py 当前使用设备: {DEVICE}", flush=True)
 
 
 dic_grading = {"Literature": """
@@ -159,12 +167,15 @@ def valid_fine_tuning(file_name):
 
 
 def scoring_by_chatgpt(question, answer, grading_category):
-    os.environ["OPENAI_API_KEY"] = "..."
-    openai.api_key = os.environ["OPENAI_API_KEY"]
+    # os.environ["OPENAI_API_KEY"] = "..."
+    # openai.api_key = os.environ["OPENAI_API_KEY"]
     grading_rubric = dic_grading[grading_category]
-    client = OpenAI()
+    client = OpenAI(
+        base_url="https://api.siliconflow.cn/v1",
+        api_key="sk-rlpqucqefotjrdfuzknudckvnhxnunvcothaaiyadwpfxndp"
+    )
     completion = client.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model="deepseek-ai/DeepSeek-V3",
         messages=[
             {"role": "system", "content": "You are a Agent fouce on grading the example for In-context learning, "
                                           "if the given example is good for In-context learning, give the example a "
@@ -186,7 +197,7 @@ def train_model_duringStore(question, answer, file_name):
     optimizer = Retrival_model.AdamW(model.parameters(), lr=5e-5)
     # Load the saved states
     Retrival_model.load_model_and_optimizer(model, optimizer, "model.pth", "optimizer.pth")
-    #model = model.to(device)
+    model = model.to(DEVICE)
     list1 = Retrival_model.allSentences(file_name)
     question_combine = f"{question}<->{answer}"
     list2 = Retrival_model.retrieval_first_BM25(question_combine, list1)
@@ -197,7 +208,7 @@ def train_model_duringStore(question, answer, file_name):
 
 
 # The item in the file is decrease according to the scores, there will be a score made by chatgpt in advance
-def message_store(question, answer, file_path, grading_category):
+def message_store(question, answer, file_path, grading_category, training=True):
     score = scoring_by_chatgpt(question, answer, grading_category)
     try:
         score = int(score)  # Attempt to convert
@@ -215,7 +226,8 @@ def message_store(question, answer, file_path, grading_category):
         ]
     }
 
-    train_model_duringStore(question, answer, file_path)
+    if training:
+        train_model_duringStore(question, answer, file_path)
 
     try:
         with open(file_path, 'a', encoding='utf-8') as write_file:
